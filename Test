@@ -1,0 +1,201 @@
+<form class="form-horizontal" autocomplete="off" #createTenantForm="ngForm" (ngSubmit)="save()">
+  <abp-modal-header [title]="'Create Seller' | localize" (onCloseClick)="bsModalRef.hide()"></abp-modal-header>
+  <div class="modal-body px-4">
+    <div class="row required mb-0">
+      <div class="col-md-6">
+        <div class="form-group required mb-3">
+          <label class="col-form-label" for="name">
+            {{ "Company Name" | localize }}
+          </label>
+          <input type="text" class="w-100 bg-white px-3"pattern="^[a-zA-Z]+$"  name="name" id="name"
+            maxlength="128" required [(ngModel)]="tenant.name" #nameModel="ngModel" #nameEl />
+          <abp-validation-summary [control]="nameModel" [controlEl]="nameEl"></abp-validation-summary>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="form-group required mb-3">
+          <label class="col-form-label" for="tenancyName">
+            {{ "Portal URL" | localize }}
+          </label>
+          <div class="input-group">
+            <input type="text" pattern="[a-zA-Z ][a-zA-Z0-9&\-_.]+$" class="form-control" name="tenancyName"
+              id="tenancyName" minlength="2" maxlength="20" required [(ngModel)]="tenant.tenancyName"
+              #tenancyNameModel="ngModel" #tenancyNameEl (keyup)="validateUrl()" />
+            <span class="input-group-text group-border rounded-0 border-left-0" id="basic-addon2">.zopoxo.com</span>
+          </div>
+          <span *ngIf="isNotValidateUrl" class="text-danger">url already exist</span>
+          <abp-validation-summary [control]="tenancyNameModel" [controlEl]="tenancyNameEl"></abp-validation-summary>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-group required mb-3">
+          <label class="col-form-label" for="businessOwner">
+            {{ "Business Owner" | localize }}
+          </label>
+          <input type="text" class="w-100 bg-white px-3" name="businessOwner" id="businessOwner" pattern="[a-zA-Z ]+"
+            maxlength="80" required [(ngModel)]="tenant.sellerContactInformation.contact" #businessOwnerModel="ngModel"
+            #businessOwnerEl />
+          <abp-validation-summary [control]="businessOwnerModel" [controlEl]="businessOwnerEl">
+          </abp-validation-summary>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-group required mb-3">
+          <label class="col-form-label" for="adminEmailAddress">
+            {{ "Email Address" | localize }}
+          </label>
+          <input type="email" class="w-100 bg-white px-3" name="adminEmailAddress" id="adminEmailAddress"
+            pattern="^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{1,})+$" maxlength="256" required
+            [(ngModel)]="tenant.adminEmailAddress" #adminEmailAddressModel="ngModel" #adminEmailAddressEl />
+          <abp-validation-summary [control]="adminEmailAddressModel" [controlEl]="adminEmailAddressEl">
+          </abp-validation-summary>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="form-group required mb-3">
+          <label class="col-form-label" for="sign">
+            {{ "KAM" | localize }}
+          </label>
+          <ng-select name="payment" [clearable]="true" required placeholder="Select KAM" [(ngModel)]="KAMInfo"
+            class="w-100 bg-white">
+            <ng-option *ngFor="let user of users" [value]="user">{{user.fullName}}</ng-option>
+          </ng-select>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="form-group required mb-3">
+          <label class="col-form-label" for="sellertype">
+            {{ "Seller Type" | localize }}
+          </label>
+          <ng-select name="sellertype"  [clearable]="true" [(ngModel)]="isExternal" placeholder="Select Seller Type"
+            id="isExternal" required #sellerTypeModel="ngModel">
+            <ng-option value="false">Internal</ng-option>
+            <ng-option value="true">External</ng-option>
+          </ng-select>
+          <abp-validation-summary [control]="sellerTypeModel"></abp-validation-summary>
+        </div>
+      </div>
+      <!-- logo -->
+      <div class="col-md-6">
+        <div class="form-group  mb-3">
+          <label class="col-form-label" for="image">
+            {{ "Brand Logo" | localize }}
+          </label>
+          <div class="" *ngIf="!tenant.tenantLogo && !imageUploading">
+            <input type="file" name="adminLogo" [(ngModel)]="tenantLogo" #adminLogo="ngModel" #adminLogoE1
+              class="form-control" id="image" (change)="onFileSelected($event, 'logo')" />
+            <span *ngIf="!tenant.tenantLogo && !imageUploading" class="fs-12 w-100 gray d-block">max.
+              5MB image
+              allowed</span>
+            <abp-validation-summary [control]="adminLogo" [controlEl]="adminLogoE1">
+            </abp-validation-summary>
+          </div>
+          <div class="spinner-border" role="status" *ngIf="imageUploading"></div>
+ 
+          <div *ngIf="tenant.tenantLogo && !imageUploading">
+            <div class="img-fixsize  position-relative mb-2">
+              <button type="button"
+                class="action-btn red-btn border-0 rounded-2 rounded-pill CrossPosi position-absolute z-3 mt-n3 delete-alignment"
+                (click)="deleteImage()" ngbTooltip="Delete" data-placement="top"> <i class="fas fa-times"></i></button>
+              <div class="overflow-hidden">
+                <img [src]="tenant.tenantLogo" class="w-100 h-100">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- signature -->
+      <div class="col-md-6">
+        <div class="form-group mb-3">
+          <label class="col-form-label" for="sign">
+            {{ "Seller Signature" | localize }}
+          </label>
+          <div *ngIf="!tenant.tenantSign && !signUploading">
+            <input #adminSignature="ngModel" [(ngModel)]="tenantSign" name="adminSignature" #adminSignatureE1
+              type="file" class="form-control" id="sign" (change)="onFileSelected($event, '')" />
+            <span *ngIf="!tenant.tenantSign && !imageUploading" class="fs-12 w-100 gray d-block">max.
+              5MB file
+              allowed</span>
+            <abp-validation-summary [control]="adminSignature" [controlEl]="adminSignatureE1">
+            </abp-validation-summary>
+          </div>
+          <div class="spinner-border" role="status" *ngIf="signUploading">
+          </div>
+        </div>
+ 
+        <div *ngIf="tenant.tenantSign && !signUploading">
+          <div class="img-fixsize position-relative mb-2">
+            <button type="button"
+              class="action-btn red-btn border-0 rounded-2 rounded-pill CrossPosi position-absolute z-3 mt-n3 delete-alignment"
+              (click)="deleteSign()" ngbTooltip="Delete" data-placement="top"> <i class="fas fa-times"></i></button>
+            <div class="overflow-hidden ">
+              <img [src]="tenant.tenantSign" class="w-100 h-100">
+            </div>
+          </div>
+        </div>
+      </div>
+ 
+    </div>
+ 
+    <!------------------------------------------------------->
+    <div class="modal-header border-bottom-0 pt-4 pb-4 px-0 align-items-center  position-relative  w-100 bg-white">
+      <h4 class="modal-title">Seller's default weight and volumetric divisor</h4>
+    </div>
+    <div class="form-group row">
+      <div class="col-md">
+        <label class="col-form-label" for="weight">
+          {{ "Weight" | localize }}(g)
+          <span class="text-danger">*</span>
+        </label>
+        <input #weight="ngModel" [(ngModel)]="tenant.defaultWeight" name="adminweight" [min]="0" required
+          pattern="[0-9]+" #weightE1 type="number" class="form-control" id="weightadmin" />
+        <abp-validation-summary [control]="weight" [controlEl]="weightE1">
+        </abp-validation-summary>
+      </div>
+      <div class="col-md">
+        <label class="col-form-label" for="divisor">
+          {{ "Divisor" | localize }}
+          <span class="text-danger">*</span>
+        </label>
+        <input #divisor="ngModel" [(ngModel)]="tenant.volWeightDivisor" name="admindivisor" [min]="0" required
+          #divisorE1 (input)="validateInput($event)" type="number" class="form-control" id="divisor" />
+        <span class="text-danger" *ngIf="showMessage">Divisor must be in between 1000 to 10000</span>
+      </div>
+      <div class="col-md">
+        <label class="col-form-label" for="length">
+          {{ "Length" | localize }}(cm)
+          <span class="text-danger">*</span>
+        </label>
+        <input #length="ngModel" [(ngModel)]="tenant.length" name="adminlength" [min]="0" required pattern="[0-9]+"
+          #lengthE1 type="number" class="form-control" id="length" />
+        <abp-validation-summary [control]="length" [controlEl]="lengthE1">
+        </abp-validation-summary>
+      </div>
+      <div class="col-md">
+        <label class="col-form-label" for="width">
+          {{ "Width" | localize }}(cm)
+          <span class="text-danger">*</span>
+        </label>
+        <input #width="ngModel" [(ngModel)]="tenant.width" name="adminwidth" [min]="0" required pattern="[0-9]+"
+          #widthE1 type="number" class="form-control" id="width" />
+        <abp-validation-summary [control]="width" [controlEl]="widthE1">
+        </abp-validation-summary>
+      </div>
+      <div class="col-md">
+        <label class="col-form-label" for="height">
+          {{ "Height" | localize }}(cm)
+          <span class="text-danger">*</span>
+        </label>
+        <input #height="ngModel" [(ngModel)]="tenant.height" name="adminheight" [min]="0" required pattern="[0-9]+"
+          #heightE1 type="number" class="form-control" id="height" />
+        <abp-validation-summary [control]="height" [controlEl]="heightE1">
+        </abp-validation-summary>
+      </div>
+    </div>
+ 
+  </div>
+ 
+  <abp-modal-footer [cancelDisabled]="saving"
+    [saveDisabled]="!createTenantForm.valid ||showMessage|| saving ||isNotValidateUrl|| imageUploading||KAMInfo==null||KAMInfo==undefined"
+    (onCancelClick)="bsModalRef.hide()"></abp-modal-footer>
+</form>
