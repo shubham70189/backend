@@ -1,0 +1,223 @@
+public async override Task<PagedResultDto<TenantDto>> GetAllAsync(PagedTenantResultRequestDto input)
+ 
+  {
+      var result = await base.Repository.GetAll().Include(x => x.SellerBillingInformation).ToListAsync();
+ 
+      var tenants = result.Where(x => x.Id != 1).Select(x => MapToEntityDto(x)).ToList();
+ 
+      foreach (var tenant in tenants)
+      {
+          var plan = _courierPlanRepsoitery.FirstOrDefault(x => x.Id == tenant.PlanId);
+          if (plan != null)
+          { tenant.PlanName = plan.PlanName; }
+          tenant.SellerCode = GenerateSellerCode(tenant.Id, tenant.CreationTime.Month.ToString(), tenant.CreationTime.Year.ToString());
+      }
+      return new PagedResultDto<TenantDto>()
+      {
+          TotalCount = tenants.Count(),
+          Items = tenants
+      };
+  }
+  public async Task<List<TenantDto>> GetAllSellers(string billingType, string remittanceDays, int planid)
+  {
+      var tenants = new List<TenantDto>();
+      try
+      {
+          var data = await tenantRepo.GetAll().Include(x => x.SellerBillingInformation).Where(x => x.Id != 1)
+               .WhereIf(!string.IsNullOrEmpty(billingType), x => x.SellerBillingInformation.BillingType == billingType)
+               .WhereIf(!remittanceDays.IsNullOrEmpty(), x => x.SellerBillingInformation.CODRemitanceDays == remittanceDays)
+               .WhereIf(planid > -1, x => x.PlanId == planid)
+               .ToListAsync();
+ 
+          tenants = data.Select(x => MapToEntityDto(x)).ToList();
+          foreach (var tenant in tenants)
+          {
+              var plan = _courierPlanRepsoitery.FirstOrDefault(x => x.Id == tenant.PlanId);
+              if (plan != null)
+              {
+                  tenant.PlanName = plan.PlanName;
+              }
+              tenant.SellerCode = GenerateSellerCode(tenant.Id, tenant.CreationTime.Month.ToString(), tenant.CreationTime.Year.ToString());
+          }
+      }
+      catch (Exception ex)
+      {
+          await commonRepository.InsertAbpAudit(ex, ex.Message, "GetAllSellers", "TenantAppService");
+      }
+      return tenants;
+  }
+ 
+  public async Task ExportSellers()
+  {
+      var sellers = await tenantRepo.GetAll().Include(x => x.SellerBillingInformation).Where(x => x.IsActive).ToListAsync();
+      var data = new List<ExportSellerInfo>();
+      foreach (var seller in sellers)
+      {
+          var balance = await _sellerAppService.GetMyBalance(seller.Id);
+          if (balance == null) continue;
+          var exportSellerInfo = new ExportSellerInfo
+          {
+              TenantName = seller.Name,
+              CreationTime = seller.CreationTime,
+              UseableAmount = balance.UseableAmount,
+              BillingType = seller?.SellerBillingInformation?.BillingType
+          };
+ 
+         data.Add(exportSellerInfo);
+      }
+ 
+      if (data.Any())
+      {
+          var csvFile = new List<string>();
+          string headers = string.Join(",", typeof(ExportSellerInfo).GetProperties().Select(x => x.Name));
+          csvFile.Add(headers);
+          foreach (var csvVal in data)
+          {
+              var data1 = string.Join(",", csvVal.GetType().GetProperties().Select(p => Convert.ToString(p.GetValue(csvVal, null))));
+              csvFile.Add(data1);
+          }
+          byte[] dataAsBytes = csvFile.SelectMany(s =>
+              System.Text.Encoding.UTF8.GetBytes(s + Environment.NewLine)).ToArray();
+          var memStream = new MemoryStream(dataAsBytes);
+ 
+          string fileName = $"Seller_Export.csv";
+          await commonLogicService.SendEmail(
+              "harvinder.singh@zopoxo.com",
+              "Sellers Export",
+              "Please find the following attachment for seller export",
+              new EmailAttachment
+              {
+                  attachmentInBaseMemoryStream = memStream,
+                  attachmentType = ".csv",
+                  fileName = fileName
+              });
+      }
+  }
+ 
+public async Task<List<CourierPlanDto>> GetAllPlans()
+  {
+      var plans = await _courierPlanRepsoitery.GetAll().GroupBy(x => x.PlanName).Select(x => new CourierPlanDto
+      {
+          Id = x.FirstOrDefault().Id,
+          PlanName = x.Key
+      }).ToListAsync();
+      return plans;
+ 
+  }
+ 
+  //Get active plan id of selected tenancy 
+  [AbpAllowAnonymous]
+  public async Task<TenantDto> GetTenantActivePlanId(int tenantId)
+  {
+      var mappedData = new TenantDto();
+      UnitOfWorkManager.Current.SetTenantId(null);
+      if (tenantId > 0)
+      {
+          var data = tenantRepo.GetAll().Include(a => a.SellerBillingInformation).FirstOrDefault(a => a.Id == tenantId);
+          mappedData = ObjectMapper.Map<TenantDto>(data);
+          var plan = _courierPlanRepsoitery.FirstOrDefault(x => x.Id == mappedData.SellerBillingInformation.PlanId);
+          if (plan != null)
+          {
+              mappedData.PlanName = plan.PlanName;
+          }
+          return mappedData;
+      }
+      return mappedData;
+  }
+ 
+  public async override Task<TenantDto> GetAsync(EntityDto<int> input)
+  {
+      var tenant = ObjectMapper.Map<TenantDto>(await tenantRepo.GetAll().Include(a => a.SellerKycInformation).FirstOrDefaultAsync(e => e.Id == input.Id));
+      using (CurrentUnitOfWork.SetTenantId(tenant.Id))
+      {
+          tenant.identifier = await _repository.GetAll().Where(x => x.status == true).Select(x => x.identifier).ToListAsync();
+          var tenantFeatures = _tenantManager.GetFeatureValues(tenant.Id);
+          if (tenantFeatures.Any(a => a.Value.ToLower() == "true"))
+          {
+              tenant.features = tenantFeatures.Where(a => a.Value.ToLower() == "true").Select(a => a.Name).ToList();
+          }
+      }
+      return tenant;
+  }
+ 
+  public async Task<TenantDto> GetSeller(int sellerId)
+  {
+      var mappedTenant = new TenantDto();
+      try
+      {
+          UnitOfWorkManager.Current.SetTenantId(null);
+          var tenant = await tenantRepo.GetAll().FirstOrDefaultAsync(e => e.Id == sellerId);
+          if (tenant != null)
+          {
+              mappedTenant = ObjectMapper.Map<TenantDto>(tenant);
+          }
+      }
+      catch (Exception ex) { }
+      return mappedTenant;
+  }
+ 
+  public async Task<TenantDto> GetSellerAllInfo(int tenantId)
+  {
+      var sellerMappedData = new TenantDto();
+      try
+      {
+          UnitOfWorkManager.Current.SetTenantId(null);
+          var sellerData = await tenantRepo.GetAll().Include(x => x.SellerBillingInformation).Include(x => x.SellerContactInformation).ThenInclude(x => x.ContactMailingAddress)
+              .Include(x => x.SellerContactInformation).ThenInclude(x => x.ContactRegisterAddress)
+              .Include(x => x.SellerKycInformation).Where(x => x.Id == tenantId).FirstOrDefaultAsync();
+          if (sellerData != null)
+          {
+              sellerMappedData = ObjectMapper.Map<TenantDto>(sellerData);
+ 
+              sellerMappedData.SellerBillingInformation = sellerMappedData.SellerBillingInformation != null ?
+                  sellerMappedData.SellerBillingInformation : new SellerBillingInformationDto();
+ 
+              if (!string.IsNullOrEmpty(sellerData.SellerBillingInformation.CODRemitanceReleaseDays))
+              {
+                  sellerMappedData.SellerBillingInformation.CODRemitanceReleaseDays = sellerData.SellerBillingInformation.CODRemitanceReleaseDays.Split(",").ToList();
+              }
+ 
+              if (sellerMappedData.SellerContactInformation != null)
+              {
+ 
+                  sellerMappedData.SellerContactInformation.ContactMailingAddress = sellerMappedData.SellerContactInformation.ContactMailingAddress != null ?
+                      sellerMappedData.SellerContactInformation.ContactMailingAddress : new SellerAddressDto();
+ 
+                  sellerMappedData.SellerContactInformation.ContactRegisterAddress = sellerMappedData.SellerContactInformation.ContactRegisterAddress != null ?
+                      sellerMappedData.SellerContactInformation.ContactRegisterAddress : new SellerAddressDto();
+ 
+              }
+              else
+              {
+                  sellerMappedData.SellerContactInformation = new SellerContactInformationDto();
+ 
+              }
+ 
+              sellerMappedData.SellerKycInformation = sellerMappedData.SellerKycInformation != null ?
+                  sellerMappedData.SellerKycInformation : new SellerKycInformationDto();
+              var features = await _tenantManager.GetFeatureValuesAsync(sellerMappedData.Id);
+              sellerMappedData.features = features.Where(x => x.Value.ToLower() == "true").Select(x => x.Name).ToList();
+              sellerMappedData.SellerCode = GenerateSellerCode(tenantId, sellerData.CreationTime.Month.ToString(), sellerData.CreationTime.Year.ToString());
+          }
+      }
+      catch (Exception ex)
+      { }
+      return sellerMappedData;
+  }
+ 
+  public async Task<string> GetSellerLogo(int tenantId)
+  {
+      UnitOfWorkManager.Current.SetTenantId(null);
+      var sellerData = await tenantRepo.GetAll().AsNoTracking().Where(x => x.Id == tenantId).FirstOrDefaultAsync();
+      return sellerData.TenantLogo != null ? GetUploadImageFileUrl(sellerData.TenantLogo, sellerData.Id, FolderConst.ZopoxoSellerKYCDetailsFolder) : "";
+  }
+ 
+  private string GenerateSellerCode(int sellerId, string month, string year)
+  {
+      month = month.Length == 1 ? $"0{month}" : month;
+      var suffix = $"{month}{year.Substring(2)}";
+      string prefix = "ZPX";
+      int numDigits = sellerId.ToString().Length >= 3 ? sellerId.ToString().Length + 1 : 4;
+      string sellerCode = prefix + sellerId.ToString().PadLeft(numDigits, '0');
+      return sellerCode;
+  }
